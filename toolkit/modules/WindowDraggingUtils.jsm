@@ -16,6 +16,10 @@ this.WindowDraggingElement = function WindowDraggingElement(elem) {
   }
 
   this._elem.addEventListener("mousedown", this);
+  // Support for double click on titlebar, when CSD is used, for maximizing
+  // and restoring the application in the GTK.
+  if (/^gtk/i.test(AppConstants.MOZ_WIDGET_TOOLKIT) && this.tabsInTitlebar())
+    this._elem.addEventListener("dblclick", this);
 };
 
 WindowDraggingElement.prototype = {
@@ -55,17 +59,35 @@ WindowDraggingElement.prototype = {
     return this._elem instanceof Components.interfaces.nsIDOMXULElement &&
            this._elem.localName == "panel";
   },
+  tabsInTitlebar() {
+    return this._window.document.documentElement.getAttribute("tabsintitlebar") == "true";
+  },
   handleEvent(aEvent) {
     let isPanel = this.isPanel();
     switch (aEvent.type) {
+      // Used only for CSD
+      case "dblclick":
+        if (this._window.windowState == this._window.STATE_MAXIMIZED)
+          this._window.restore();
+        else
+          this._window.maximize();
+        break;
       case "mousedown":
         if (!this.shouldDrag(aEvent))
           return;
 
         if (/^gtk/i.test(AppConstants.MOZ_WIDGET_TOOLKIT)) {
-          // On GTK, there is a toolkit-level function which handles
-          // window dragging, which must be used.
-          this._window.beginWindowMove(aEvent, isPanel ? this._elem : null);
+          if (this.tabsInTitlebar()) {
+            // If CSD is enabled then we won't start moving of window right now
+            // because we won't be able to receive doubleclick event
+            // for window maximize/restore.
+            this._draggingWindow = true;
+            this._window.addEventListener("mousemove", this);
+          } else {
+            // On GTK, there is a toolkit-level function which handles
+            // window dragging, which must be used.
+            this._window.beginWindowMove(aEvent, isPanel ? this._elem : null);
+          }
           break;
         }
         if (isPanel) {
@@ -82,8 +104,15 @@ WindowDraggingElement.prototype = {
         break;
       case "mousemove":
         if (this._draggingWindow) {
-          let toDrag = this.isPanel() ? this._elem : this._window;
-          toDrag.moveTo(aEvent.screenX - this._deltaX, aEvent.screenY - this._deltaY);
+          if (/^gtk/i.test(AppConstants.MOZ_WIDGET_TOOLKIT) && this.tabsInTitlebar()) {
+            this._window.beginWindowMove(aEvent, isPanel ? this._elem : null);
+            // For GTK with CSD support it's only one time event
+            this._draggingWindow = false;
+            this._window.removeEventListener('mousemove', this);
+          } else {
+            let toDrag = this.isPanel() ? this._elem : this._window;
+            toDrag.moveTo(aEvent.screenX - this._deltaX, aEvent.screenY - this._deltaY);
+          }
         }
         break;
       case "mouseup":
