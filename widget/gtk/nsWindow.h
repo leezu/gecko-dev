@@ -455,6 +455,9 @@ private:
     MozContainer       *mContainer;
     GdkWindow          *mGdkWindow;
     bool                mIsCSDEnabled;
+    cairo_region_t     *mCSDMask;
+    int32_t             mCSDMaskWidth;
+    int32_t             mCSDMaskHeight;
     PlatformCompositorWidgetDelegate* mCompositorWidgetDelegate;
 
 

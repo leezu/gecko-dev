@@ -444,6 +444,9 @@ nsWindow::nsWindow()
     mContainer           = nullptr;
     mGdkWindow           = nullptr;
     mIsCSDEnabled        = false;
+    mCSDMask             = nullptr;
+    mCSDMaskWidth        = 0;
+    mCSDMaskHeight       = 0;
     mShell               = nullptr;
     mCompositorWidgetDelegate = nullptr;
     mHasMappedToplevel   = false;
@@ -807,6 +810,11 @@ nsWindow::Destroy()
          mRootAccessible = nullptr;
      }
 #endif
+
+    if (mCSDMask) {
+        cairo_region_destroy(mCSDMask);
+        mCSDMask = nullptr;
+    }
 
     // Save until last because OnDestroy() may cause us to be deleted.
     OnDestroy();
@@ -5698,8 +5706,6 @@ expose_event_decoration_draw_cb(GtkWidget *widget, cairo_t *cr)
           gtk_window_get_size(GTK_WINDOW(widget), &rect.width, &rect.height);
           moz_gtk_window_decoration_paint(cr, &rect);
 
-          rect.height = 40;
-          moz_gtk_header_bar_paint(cr, &rect);
           cairo_restore(cr);
       }
   }
@@ -7147,14 +7153,46 @@ nsWindow::UpdateClientDecorations()
   gtk_widget_set_margin_bottom(GTK_WIDGET(mContainer), mDecorationSize.bottom);
 }
 
+
 void
 nsWindow::ApplyCSDClipping()
 {
   if (IsClientDecorated()) {
       gint top, right, bottom, left;
       moz_gtk_get_header_bar_border(&top, &right, &bottom, &left);
-      cairo_rectangle_int_t rect = { 0, top, mBounds.width, mBounds.height};
+
+      // Choose some reasonable size for header bar mask
+      gint csdBitmapHeight = top * 2;
+
+      if (mCSDMaskWidth != mBounds.width ||
+          mCSDMaskHeight != csdBitmapHeight) {
+          mCSDMaskWidth = mBounds.width;
+          mCSDMaskHeight = csdBitmapHeight;
+
+          cairo_surface_t *csdMaskBitamp;
+          csdMaskBitamp = cairo_image_surface_create(CAIRO_FORMAT_A1,
+                                                     mCSDMaskWidth,
+                                                     mCSDMaskHeight);
+          if (!csdMaskBitamp) {
+              gdk_window_shape_combine_region(mGdkWindow, nullptr, 0, 0);
+              return;
+          }
+
+          cairo_t *cr = cairo_create(csdMaskBitamp);
+          GdkRectangle rect = { 0, 0,  mCSDMaskWidth, 40};
+          moz_gtk_header_bar_paint(cr, &rect);
+          if (mCSDMask) {
+              cairo_region_destroy(mCSDMask);
+          }
+          mCSDMask = gdk_cairo_region_create_from_surface(csdMaskBitamp);
+          cairo_surface_destroy(csdMaskBitamp);
+          cairo_destroy(cr);
+      }
+
+      cairo_rectangle_int_t rect = { 0, top,
+                                     mBounds.width, mBounds.height - top};
       cairo_region_t *region = cairo_region_create_rectangle(&rect);
+      cairo_region_union(region, mCSDMask);
       gdk_window_shape_combine_region(mGdkWindow, region, 0, 0);
       cairo_region_destroy(region);
   } else {
