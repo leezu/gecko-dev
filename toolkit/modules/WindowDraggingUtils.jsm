@@ -67,6 +67,9 @@ WindowDraggingElement.prototype = {
     switch (aEvent.type) {
       // Used only for CSD
       case "dblclick":
+        if (!this.shouldDrag(aEvent))
+          return;
+
         if (this._window.windowState == this._window.STATE_MAXIMIZED)
           this._window.restore();
         else
